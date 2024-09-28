@@ -76,6 +76,7 @@ async function deployMulticall() {
   const multicallArtifact = await ethers.getContractFactory("Multicall");
   const multicallContract = await multicallArtifact.deploy(
     plugin.address,
+    voter.address,
     await voter.OTOKEN(),
     {
       gasPrice: ethers.gasPrice,
@@ -124,7 +125,7 @@ async function verifyPlugin(wallet) {
 async function verifyMulticall() {
   await hre.run("verify:verify", {
     address: multicall.address,
-    constructorArguments: [plugin.address, await voter.OTOKEN()],
+    constructorArguments: [plugin.address, voter.address, await voter.OTOKEN()],
   });
 }
 

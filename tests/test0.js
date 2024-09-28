@@ -43,6 +43,7 @@ describe("local: test0", function () {
     const multicallArtifact = await ethers.getContractFactory("Multicall");
     multicall = await multicallArtifact.deploy(
       plugin.address,
+      voter.address,
       await voter.OTOKEN()
     );
     console.log("- Multicall Initialized");
@@ -981,5 +982,26 @@ describe("local: test0", function () {
     console.log(await multicall.getGauge(user0.address));
     await voter.getReward(user0.address);
     console.log(await multicall.getGauge(user0.address));
+  });
+
+  it("User0 copies pasta", async function () {
+    console.log("******************************************************");
+    await multicall
+      .connect(user0)
+      .copyPasta(user0.address, { value: pointOne });
+  });
+
+  it("User0 creates new pasta", async function () {
+    console.log("******************************************************");
+    let price = await plugin.getCreatePrice();
+    console.log("Price: ", divDec(price));
+    await multicall
+      .connect(user0)
+      .createPasta(user0.address, "Henlo World from user0", 1827464427, price, {
+        value: price,
+      });
+    console.log("Pasta created");
+    price = await plugin.getCreatePrice();
+    console.log("Price: ", divDec(price));
   });
 });
