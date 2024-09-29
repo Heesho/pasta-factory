@@ -6,7 +6,7 @@ const hre = require("hardhat");
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 const convert = (amount, decimals) => ethers.utils.parseUnits(amount, decimals);
 const divDec = (amount, decimals = 18) => amount / 10 ** decimals;
-const pointZeroOne = convert("0.01", 18);
+const pointOne = convert("0.1", 18);
 
 // Contract Variables
 let base, plugin, multicall, voter;
