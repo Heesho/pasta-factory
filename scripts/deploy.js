@@ -17,19 +17,19 @@ let base, plugin, multicall, voter;
 async function getContracts() {
   base = await ethers.getContractAt(
     "contracts/Base.sol:Base",
-    "0x118D5BC0EbFEa86526254091Ba2DC4CE0e790a84"
+    "0x7507c1dc16935B82698e4C63f2746A2fCf994dF8" // WBERA
   );
   voter = await ethers.getContractAt(
     "contracts/Voter.sol:Voter",
-    "0x12841234586E521C371b6B96FFB2eAfB33bDc9bf"
+    "0x60305899769bE42c51B535733DFb5D7B46207D25"
   );
   plugin = await ethers.getContractAt(
     "contracts/PastaPlugin.sol:PastaPlugin",
-    "0x87271d5E0902a2121a791354D271FE3d1669aaB8"
+    "0x4B81C239d8f6D0d269f7010dADb31BF31eA39461"
   );
   multicall = await ethers.getContractAt(
     "contracts/Multicall.sol:Multicall",
-    "0x0FD3fD6833415f9861681e1153076275982c7830"
+    "0x5E42bb6Cf9418bdeFdfC3Eb36B99266B66798f7d"
   );
   console.log("Contracts Retrieved");
 }
