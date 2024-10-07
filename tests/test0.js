@@ -10,7 +10,7 @@ const pointOne = convert("0.1", 18);
 const one = convert("1", 18);
 
 let owner, treasury, user0, user1, user2, user3;
-let base, voter;
+let base, voter, vaultFactory;
 let plugin, multicall;
 
 describe("local: test0", function () {
@@ -23,6 +23,12 @@ describe("local: test0", function () {
     base = await baseArtifact.deploy();
     console.log("- Base Initialized");
 
+    const vaultFactoryArtifact = await ethers.getContractFactory(
+      "BerachainRewardsVaultFactory"
+    );
+    vaultFactory = await vaultFactoryArtifact.deploy();
+    console.log("- Vault Factory Initialized");
+
     const voterArtifact = await ethers.getContractFactory("Voter");
     voter = await voterArtifact.deploy();
     console.log("- Voter Initialized");
@@ -33,7 +39,8 @@ describe("local: test0", function () {
       voter.address,
       [base.address],
       [base.address],
-      treasury.address
+      treasury.address,
+      vaultFactory.address
     );
     console.log("- Plugin Initialized");
 

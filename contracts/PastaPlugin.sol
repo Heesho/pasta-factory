@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -25,6 +26,27 @@ interface IVoter {
 
 interface IWBERA {
     function deposit() external payable;
+}
+
+interface IBerachainRewardsVaultFactory {
+    function createRewardsVault(address _vaultToken) external returns (address);
+}
+
+interface IRewardVault {
+    function delegateStake(address account, uint256 amount) external;
+    function delegateWithdraw(address account, uint256 amount) external;
+}
+
+contract VaultToken is ERC20, Ownable {
+    constructor() ERC20("Bull Ish Vault Token", "BIVT") {}
+
+    function mint(address to, uint256 amount) external onlyOwner {
+        _mint(to, amount);
+    }
+
+    function burn(address from, uint256 amount) external onlyOwner {
+        _burn(from, amount);
+    }
 }
 
 contract PastaPlugin is ReentrancyGuard, Ownable {
@@ -56,6 +78,9 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
     address[] private bribeTokens;
 
     address public treasury;
+
+    address public immutable vaultToken;  // staking token address for Berachain Rewards Vault Delegate Stake
+    address public immutable rewardVault;   // reward vault address for Berachain Rewards Vault Delegate Stake
 
     uint256 public copyPrice = 0.1 ether;
     uint256 public minCreatePrice = 0.1 ether;
@@ -121,7 +146,8 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         address _voter, 
         address[] memory _tokensInUnderlying,   // [WBERA]
         address[] memory _bribeTokens,          // [WBERA]
-        address _treasury
+        address _treasury,
+        address _vaultFactory
     ) {
         underlying = IERC20Metadata(_underlying);
         voter = _voter;
@@ -132,6 +158,9 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
 
         auctionCreatePrice = minCreatePrice;
         auctionStartTime = block.timestamp;
+
+        vaultToken = address(new VaultToken());
+        rewardVault = IBerachainRewardsVaultFactory(_vaultFactory).createRewardsVault(address(vaultToken));
     }
 
     function claimAndDistribute() 
@@ -203,6 +232,11 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         uint256 currentIndex = tail % QUEUE_SIZE;
         if (count == QUEUE_SIZE) {
             IGauge(gauge)._withdraw(queue[head].account, AMOUNT);
+
+            // Berachain Rewards Vault Delegate Stake
+            IRewardVault(rewardVault).delegateWithdraw(account, AMOUNT);
+            VaultToken(vaultToken).burn(address(this), AMOUNT);
+
             emit Plugin__PastaRemoved(queue[head].account, queue[head].message);
             head = (head + 1) % QUEUE_SIZE;
         }
@@ -211,12 +245,23 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         count = count < QUEUE_SIZE ? count + 1 : count;
         emit Plugin__PastaAdded(account, message);
         IGauge(gauge)._deposit(account, AMOUNT);
+
+        // Berachain Rewards Vault Delegate Stake
+        VaultToken(vaultToken).mint(address(this), AMOUNT);
+        IERC20(vaultToken).safeApprove(rewardVault, 0);
+        IERC20(vaultToken).safeApprove(rewardVault, AMOUNT);
+        IRewardVault(rewardVault).delegateStake(account, AMOUNT);
     }
 
     function updateCreatorQueue(address account) internal {
         uint256 currentIndex = creatorTail % QUEUE_SIZE;
         if (creatorCount == QUEUE_SIZE) {
             IGauge(gauge)._withdraw(creatorQueue[creatorHead], AMOUNT);
+
+            // Berachain Rewards Vault Delegate Stake
+            IRewardVault(rewardVault).delegateWithdraw(account, AMOUNT);
+            VaultToken(vaultToken).burn(address(this), AMOUNT);
+
             emit Plugin__CreatorRemoved(creatorQueue[creatorHead]);
             creatorHead = (creatorHead + 1) % QUEUE_SIZE;
         }
@@ -225,6 +270,12 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         creatorCount = creatorCount < QUEUE_SIZE ? creatorCount + 1 : creatorCount;
         emit Plugin__CreatorAdded(account);
         IGauge(gauge)._deposit(account, AMOUNT);
+
+        // Berachain Rewards Vault Delegate Stake
+        VaultToken(vaultToken).mint(address(this), AMOUNT);
+        IERC20(vaultToken).safeApprove(rewardVault, 0);
+        IERC20(vaultToken).safeApprove(rewardVault, AMOUNT);
+        IRewardVault(rewardVault).delegateStake(account, AMOUNT);
     }
 
     function setTreasury(address _treasury) external onlyOwner {
