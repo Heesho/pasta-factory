@@ -234,7 +234,7 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
             IGauge(gauge)._withdraw(queue[head].account, AMOUNT);
 
             // Berachain Rewards Vault Delegate Stake
-            IRewardVault(rewardVault).delegateWithdraw(account, AMOUNT);
+            IRewardVault(rewardVault).delegateWithdraw(queue[head].account, AMOUNT);
             VaultToken(vaultToken).burn(address(this), AMOUNT);
 
             emit Plugin__PastaRemoved(queue[head].account, queue[head].message);
@@ -259,7 +259,7 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
             IGauge(gauge)._withdraw(creatorQueue[creatorHead], AMOUNT);
 
             // Berachain Rewards Vault Delegate Stake
-            IRewardVault(rewardVault).delegateWithdraw(account, AMOUNT);
+            IRewardVault(rewardVault).delegateWithdraw(queue[head].account, AMOUNT);
             VaultToken(vaultToken).burn(address(this), AMOUNT);
 
             emit Plugin__CreatorRemoved(creatorQueue[creatorHead]);
