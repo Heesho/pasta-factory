@@ -54,7 +54,7 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
     uint256 public constant QUEUE_SIZE = 100;
     uint256 public constant DURATION = 7 days;
     uint256 public constant MESSAGE_LENGTH = 420;
-    uint256 public constant AMOUNT = 1 ether;
+    uint256 public constant AMOUNT = 1;
 
     uint256 constant public PRECISION = 1e18;
     uint256 public constant AUCTION_DURATION = 3600; // 1 hour
@@ -191,7 +191,7 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
 
         currentPasta = Pasta(account, message);
 
-        token.safeTransferFrom(account, address(this), paymentAmount);
+        token.safeTransferFrom(msg.sender, address(this), paymentAmount);
         updateQueue(account, message);
     }
 
@@ -202,7 +202,7 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         if (account == address(0)) revert Plugin__InvalidAccount();
         if (currentPasta.account == address(0)) revert Plugin__InvalidPasta();
 
-        token.safeTransferFrom(account, address(this), copyPrice);
+        token.safeTransferFrom(msg.sender, address(this), copyPrice);
         updateCreatorQueue(currentPasta.account);
         updateQueue(account, currentPasta.message);
     }
@@ -337,6 +337,10 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
 
     function getRewardVault() public view returns (address) {
         return rewardVault;
+    }
+
+    function getQueueSize() public view returns (uint256) {
+        return count;
     }
 
     function getCreatorQueueSize() public view returns (uint256) {

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+interface IWBERA {
+    function deposit() external payable;
+}
 
 interface IPastaPlugin {
     struct Pasta {
@@ -25,14 +29,13 @@ interface IGauge {
     function getRewardForDuration(address token) external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function earned(address account, address token) external view returns (uint256);
-}
-
-interface IVoter {
     function getReward(address account) external;
 }
 
 contract Multicall {
+    using SafeERC20 for IERC20;
 
+    address public immutable base;
     address public immutable plugin;
     address public immutable voter;
     address public immutable oBERO;
@@ -45,22 +48,29 @@ contract Multicall {
         uint256 oBeroBalance;
     }
 
-    constructor(address _plugin, address _voter, address _oBERO) {
+    constructor(address _base, address _plugin, address _voter, address _oBERO) {
+        base = _base;
         plugin = _plugin;
         voter = _voter;
         oBERO = _oBERO;
     }
 
     function createPasta(address account, string memory message, uint256 deadline, uint256 maxPayment) external payable {
-        IPastaPlugin(plugin).create{value: msg.value}(account, message, deadline, maxPayment);
+        IWBERA(base).deposit{value: msg.value}();
+        IERC20(base).safeApprove(plugin, 0);
+        IERC20(base).safeApprove(plugin, msg.value);
+        IPastaPlugin(plugin).create(account, message, deadline, maxPayment);
     }
 
     function copyPasta(address account) external payable {
-        IPastaPlugin(plugin).copy{value: msg.value}(account);
+        IWBERA(base).deposit{value: msg.value}();
+        IERC20(base).safeApprove(plugin, 0);
+        IERC20(base).safeApprove(plugin, msg.value);
+        IPastaPlugin(plugin).copy(account);
     }
 
     function getReward(address account) external {
-        IVoter(voter).getReward(account);
+        IGauge(IPastaPlugin(plugin).getGauge()).getReward(account);
     }
 
     // Function to receive Ether. msg.data must be empty
@@ -75,13 +85,11 @@ contract Multicall {
 
     function getGauge(address account) external view returns (GaugeState memory gaugeState) {
         address gauge = IPastaPlugin(plugin).getGauge();
-        if (gauge != address(0)) {
-            gaugeState.rewardPerToken = IGauge(gauge).totalSupply() == 0 ? 0 : (IGauge(gauge).getRewardForDuration(oBERO) * 1e18 / IGauge(gauge).totalSupply());
-            gaugeState.totalSupply = IGauge(gauge).totalSupply();
-            gaugeState.balance = IGauge(gauge).balanceOf(account);
-            gaugeState.earned = IGauge(gauge).earned(account, oBERO);
-            gaugeState.oBeroBalance = IERC20(oBERO).balanceOf(account);
-        }
+        gaugeState.rewardPerToken = IGauge(gauge).totalSupply() == 0 ? 0 : (IGauge(gauge).getRewardForDuration(oBERO) * 1e18 / IGauge(gauge).totalSupply());
+        gaugeState.totalSupply = IGauge(gauge).totalSupply();
+        gaugeState.balance = IGauge(gauge).balanceOf(account);
+        gaugeState.earned = IGauge(gauge).earned(account, oBERO);
+        gaugeState.oBeroBalance = IERC20(oBERO).balanceOf(account);
     }
 
     function getCreatorQueueFragment(uint256 start, uint256 end) external view returns (address[] memory) {
