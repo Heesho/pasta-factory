@@ -2,11 +2,9 @@
 pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 interface IGauge {
     function _deposit(address account, uint256 amount) external;
@@ -17,7 +15,6 @@ interface IGauge {
 
 interface IBribe {
     function notifyRewardAmount(address token, uint amount) external;
-    function DURATION() external view returns (uint);
 }
 
 interface IVoter {
@@ -64,26 +61,26 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
     uint256 constant public ABS_MAX_INIT_PRICE = type(uint192).max;
     uint256 constant public PRICE_MULTIPLIER = 2000000000000000000;
     
-    string public constant SYMBOL = "PASTA";
-    string public constant PROTOCOL = "PastaFactory";
+    string public constant PROTOCOL = "Gumball";
+    string public constant NAME = "PastaFactory";
 
     /*----------  STATE VARIABLES  --------------------------------------*/
 
-    IERC20Metadata private immutable underlying;
+    IERC20 private immutable token;
     address private immutable OTOKEN;
     address private immutable voter;
     address private gauge;
     address private bribe;
-    address[] private tokensInUnderlying;
+
+    address[] private assetTokens;
     address[] private bribeTokens;
 
+    address public immutable vaultToken;
+    address public immutable rewardVault;
+
     address public treasury;
-
-    address public immutable vaultToken;  // staking token address for Berachain Rewards Vault Delegate Stake
-    address public immutable rewardVault;   // reward vault address for Berachain Rewards Vault Delegate Stake
-
-    uint256 public copyPrice = 0.1 ether;
-    uint256 public minCreatePrice = 0.1 ether;
+    uint256 public copyPrice = 0.01 ether;
+    uint256 public minCreatePrice = 0.01 ether;
     uint256 public auctionCreatePrice;
     uint256 public auctionStartTime;
 
@@ -109,7 +106,6 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
     error Plugin__InvalidZeroInput();
     error Plugin__NotAuthorizedVoter();
     error Plugin__NotAuthorized();
-    error Plugin__InvalidPayment();
     error Plugin__InvalidMessage();
     error Plugin__InvalidAccount();
     error Plugin__InvalidPasta();
@@ -129,11 +125,6 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
 
     /*----------  MODIFIERS  --------------------------------------------*/
 
-    modifier nonZeroInput(uint256 _amount) {
-        if (_amount == 0) revert Plugin__InvalidZeroInput();
-        _;
-    }
-
     modifier onlyVoter() {
         if (msg.sender != voter) revert Plugin__NotAuthorizedVoter();
         _;
@@ -142,16 +133,16 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
     /*----------  FUNCTIONS  --------------------------------------------*/
 
     constructor(
-        address _underlying,                    // WBERA
+        address _token,                
         address _voter, 
-        address[] memory _tokensInUnderlying,   // [WBERA]
-        address[] memory _bribeTokens,          // [WBERA]
+        address[] memory _assetTokens,
+        address[] memory _bribeTokens,
         address _treasury,
         address _vaultFactory
     ) {
-        underlying = IERC20Metadata(_underlying);
+        token = IERC20(_token);
         voter = _voter;
-        tokensInUnderlying = _tokensInUnderlying;
+        assetTokens = _assetTokens;
         bribeTokens = _bribeTokens;
         treasury = _treasury;
         OTOKEN = IVoter(_voter).OTOKEN();
@@ -167,21 +158,18 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         external 
         nonReentrant
     {
-        uint256 balance = address(this).balance;
+        uint256 balance = token.balanceOf(address(this));
         if (balance > DURATION) {
-            address token = getUnderlyingAddress();
-            IWBERA(token).deposit{value: balance}();
             uint256 treasuryFee = balance / 5;
-            IERC20(token).safeTransfer(treasury, treasuryFee);
-            IERC20(token).safeApprove(bribe, 0);
-            IERC20(token).safeApprove(bribe, balance - treasuryFee);
-            IBribe(bribe).notifyRewardAmount(token, balance - treasuryFee);
+            token.safeTransfer(treasury, treasuryFee);
+            token.safeApprove(bribe, 0);
+            token.safeApprove(bribe, balance - treasuryFee);
+            IBribe(bribe).notifyRewardAmount(address(token), balance - treasuryFee);
         }
     }
 
     function create(address account, string memory message, uint256 deadline, uint256 maxPayment)         
         external
-        payable
         nonReentrant 
         returns (uint256 paymentAmount)
     {
@@ -192,7 +180,6 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         
         paymentAmount = getCreatePrice();
         if (paymentAmount > maxPayment) revert Plugin__MaxPaymentExceeded();
-        if (msg.value < paymentAmount) revert Plugin__InvalidPayment();
 
         uint256 newCreatePrice = paymentAmount * PRICE_MULTIPLIER / PRECISION;
         if (newCreatePrice > ABS_MAX_INIT_PRICE) {
@@ -204,27 +191,21 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
 
         currentPasta = Pasta(account, message);
 
+        token.safeTransferFrom(account, address(this), paymentAmount);
         updateQueue(account, message);
     }
 
     function copy(address account)         
         external
-        payable
         nonReentrant 
     {
-        if (msg.value < copyPrice) revert Plugin__InvalidPayment();
         if (account == address(0)) revert Plugin__InvalidAccount();
         if (currentPasta.account == address(0)) revert Plugin__InvalidPasta();
 
-        updateCreatorQueue(account);
+        token.safeTransferFrom(account, address(this), copyPrice);
+        updateCreatorQueue(currentPasta.account);
         updateQueue(account, currentPasta.message);
     }
-
-    // Function to receive Ether. msg.data must be empty
-    receive() external payable {}
-
-    // Fallback function is called when msg.data is not empty
-    fallback() external payable {}
 
     /*----------  RESTRICTED FUNCTIONS  ---------------------------------*/
 
@@ -244,38 +225,38 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         tail = (tail + 1) % QUEUE_SIZE;
         count = count < QUEUE_SIZE ? count + 1 : count;
         emit Plugin__PastaAdded(account, message);
+
         IGauge(gauge)._deposit(account, AMOUNT);
 
-        // Berachain Rewards Vault Delegate Stake
         VaultToken(vaultToken).mint(address(this), AMOUNT);
         IERC20(vaultToken).safeApprove(rewardVault, 0);
         IERC20(vaultToken).safeApprove(rewardVault, AMOUNT);
         IRewardVault(rewardVault).delegateStake(account, AMOUNT);
     }
 
-    function updateCreatorQueue(address account) internal {
+    function updateCreatorQueue(address creator) internal {
         uint256 currentIndex = creatorTail % QUEUE_SIZE;
         if (creatorCount == QUEUE_SIZE) {
             IGauge(gauge)._withdraw(creatorQueue[creatorHead], AMOUNT);
 
             // Berachain Rewards Vault Delegate Stake
-            IRewardVault(rewardVault).delegateWithdraw(queue[head].account, AMOUNT);
+            IRewardVault(rewardVault).delegateWithdraw(creatorQueue[creatorHead], AMOUNT);
             VaultToken(vaultToken).burn(address(this), AMOUNT);
 
             emit Plugin__CreatorRemoved(creatorQueue[creatorHead]);
             creatorHead = (creatorHead + 1) % QUEUE_SIZE;
         }
-        creatorQueue[currentIndex] = account;
+        creatorQueue[currentIndex] = creator;
         creatorTail = (creatorTail + 1) % QUEUE_SIZE;
         creatorCount = creatorCount < QUEUE_SIZE ? creatorCount + 1 : creatorCount;
-        emit Plugin__CreatorAdded(account);
-        IGauge(gauge)._deposit(account, AMOUNT);
+        emit Plugin__CreatorAdded(creator);
 
-        // Berachain Rewards Vault Delegate Stake
+        IGauge(gauge)._deposit(creator, AMOUNT);
+
         VaultToken(vaultToken).mint(address(this), AMOUNT);
         IERC20(vaultToken).safeApprove(rewardVault, 0);
         IERC20(vaultToken).safeApprove(rewardVault, AMOUNT);
-        IRewardVault(rewardVault).delegateStake(account, AMOUNT);
+        IRewardVault(rewardVault).delegateStake(creator, AMOUNT);
     }
 
     function setTreasury(address _treasury) external onlyOwner {
@@ -318,24 +299,16 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         return IGauge(gauge).totalSupply();
     }
 
-    function getUnderlyingName() public view virtual returns (string memory) {
-        return SYMBOL;
-    }
-
-    function getUnderlyingSymbol() public view virtual returns (string memory) {
-        return SYMBOL;
-    }
-
-    function getUnderlyingAddress() public view virtual returns (address) {
-        return address(underlying);
-    }
-
-    function getUnderlyingDecimals() public view virtual returns (uint8) {
-        return underlying.decimals();
-    }
+    function getToken() public view returns (address) {
+        return address(token);
+    } 
 
     function getProtocol() public view virtual returns (string memory) {
         return PROTOCOL;
+    }
+
+    function getName() public view virtual returns (string memory) {
+        return NAME;
     }
 
     function getVoter() public view returns (address) {
@@ -350,16 +323,20 @@ contract PastaPlugin is ReentrancyGuard, Ownable {
         return bribe;
     }
 
-    function getTokensInUnderlying() public view virtual returns (address[] memory) {
-        return tokensInUnderlying;
+    function getAssetTokens() public view returns (address[] memory) {
+        return assetTokens;
     }
 
     function getBribeTokens() public view returns (address[] memory) {
         return bribeTokens;
     }
 
-    function getQueueSize() public view returns (uint256) {
-        return count;
+    function getVaultToken() public view returns (address) {
+        return vaultToken;
+    }
+
+    function getRewardVault() public view returns (address) {
+        return rewardVault;
     }
 
     function getCreatorQueueSize() public view returns (uint256) {
